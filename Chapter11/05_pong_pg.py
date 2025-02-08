@@ -50,8 +50,8 @@ class MeanBuffer:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--dev", default="cpu", help="Device to use, default=cpu")
-    parser.add_argument("-n", '--name', required=True, help="Name of the run")
+        "--dev", default="cuda", help="Device to use, default=cpu")
+    parser.add_argument("-n", '--name', default="run1", help="Name of the run")
     args = parser.parse_args()
     device = torch.device(args.dev)
 
