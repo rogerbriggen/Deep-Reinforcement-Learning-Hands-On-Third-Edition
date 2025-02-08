@@ -17,6 +17,14 @@ BATCH_SIZE = 8
 
 REWARD_STEPS = 10
 
+# if GPU is to be used
+device = torch.device(
+    "cuda" if torch.cuda.is_available() else
+    "mps" if torch.backends.mps.is_available() else
+    "cpu"
+)
+print(f"Device: {device}")
+
 
 class PGN(nn.Module):
     def __init__(self, input_size: int, n_actions: int):
@@ -42,12 +50,12 @@ if __name__ == "__main__":
     env = gym.make("CartPole-v1")
     writer = SummaryWriter(comment="-cartpole-pg")
 
-    net = PGN(env.observation_space.shape[0], env.action_space.n)
+    net = PGN(env.observation_space.shape[0], env.action_space.n).to(device)
     print(net)
 
     agent = ptan.agent.PolicyAgent(
         net, preprocessor=ptan.agent.float32_preprocessor,
-        apply_softmax=True)
+        apply_softmax=True, device=device)
     exp_source = ptan.experience.ExperienceSourceFirstLast(
         env, agent, gamma=GAMMA, steps_count=REWARD_STEPS)
 
@@ -89,9 +97,9 @@ if __name__ == "__main__":
         if len(batch_states) < BATCH_SIZE:
             continue
 
-        states_t = torch.as_tensor(np.asarray(batch_states))
-        batch_actions_t = torch.as_tensor(batch_actions)
-        batch_scale_t = torch.as_tensor(batch_scales)
+        states_t = torch.as_tensor(np.asarray(batch_states)).to(device)
+        batch_actions_t = torch.as_tensor(batch_actions).to(device)
+        batch_scale_t = torch.as_tensor(batch_scales).to(device)
 
         optimizer.zero_grad()
         logits_t = net(states_t)
