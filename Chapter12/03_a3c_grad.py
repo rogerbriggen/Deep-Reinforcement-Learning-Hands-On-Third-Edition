@@ -109,8 +109,8 @@ if __name__ == "__main__":
     mp.set_start_method('spawn')
     os.environ['OMP_NUM_THREADS'] = "1"
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dev", default="cpu", help="Device to use, default=cpu")
-    parser.add_argument("-n", "--name", required=True, help="Name of the run")
+    parser.add_argument("--dev", default="cuda", help="Device to use, default=cpu")
+    parser.add_argument("-n", "--name", default="a3c_grad_run1", help="Name of the run")
     args = parser.parse_args()
     device = torch.device(args.dev)
 
