@@ -14,15 +14,9 @@ import torch.nn as nn
 import torch.optim as optim
 
 from lib import common
+import optuna
 
-GAMMA = 0.99
-LEARNING_RATE = 0.001
-ENTROPY_BETA = 0.01
-BATCH_SIZE = 64
-NUM_ENVS = 50
-
-REWARD_STEPS = 4
-CLIP_GRAD = 0.1
+MAX_EPISODES = 500  # Maximum number of episodes per trial
 
 class LunarA2C(nn.Module):
     def __init__(self, input_size: int, n_actions: int):
@@ -37,7 +31,6 @@ class LunarA2C(nn.Module):
             nn.Linear(512, net_out_size),
         )
 
-        
         self.policy = nn.Sequential(
             nn.Linear(net_out_size, 512),
             nn.ReLU(),
@@ -54,36 +47,35 @@ class LunarA2C(nn.Module):
         return self.policy(net_out), self.value(net_out)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dev", default="cpu", help="Device to use, default=cpu")
-    parser.add_argument("--use-async", default=False, action='store_true',
-                        help="Use async vector env (A3C mode)")
-    parser.add_argument("-n", "--name", default="run1", help="Name of the run")
-    args = parser.parse_args()
-    device = torch.device(args.dev)
+def objective(trial):
+    # Hyperparameters to optimize
+    gamma = trial.suggest_float("gamma", 0.9, 0.999)
+    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-2, log=True)
+    entropy_beta = trial.suggest_float("entropy_beta", 0.01, 0.5)
+    batch_size = trial.suggest_int("batch_size", 8, 128)
+    num_envs = trial.suggest_int("num_envs", 1, 50)
+    reward_steps = trial.suggest_int("reward_steps", 1, 10)
+    clip_grad = trial.suggest_float("clip_grad", 0.01, 1.0)
 
     env_factories = [
         lambda: gym.make("LunarLander-v2")
-        for _ in range(NUM_ENVS)
+        for _ in range(num_envs)
     ]
-    if args.use_async:
-        env = gym.vector.AsyncVectorEnv(env_factories)
-    else:
-        env = gym.vector.SyncVectorEnv(env_factories)
-    writer = SummaryWriter(comment="-lunarlander-a2c_" + args.name)
+    env = gym.vector.SyncVectorEnv(env_factories)
+    writer = SummaryWriter(comment="-lunarlander-a2c_optuna")
 
     net = LunarA2C(env.single_observation_space.shape[0],
-                          env.single_action_space.n).to(device)
+                   env.single_action_space.n).to(device)
     print(net)
 
     agent = ptan.agent.PolicyAgent(lambda x: net(x)[0], apply_softmax=True, device=device)
     exp_source = VectorExperienceSourceFirstLast(
-        env, agent, gamma=GAMMA, steps_count=REWARD_STEPS)
+        env, agent, gamma=gamma, steps_count=reward_steps)
 
-    optimizer = optim.Adam(net.parameters(), lr=LEARNING_RATE, eps=1e-3)
+    optimizer = optim.Adam(net.parameters(), lr=learning_rate, eps=1e-3)
 
     batch = []
+    done_episodes = 0
 
     with common.RewardTracker(writer, stop_reward=18) as tracker:
         with TBMeanTracker(writer, batch_size=10) as tb_tracker:
@@ -93,14 +85,18 @@ if __name__ == "__main__":
                 # handle new rewards
                 new_rewards = exp_source.pop_total_rewards()
                 if new_rewards:
+                    done_episodes += 1
                     if tracker.reward(new_rewards[0], step_idx):
                         break
+                    if done_episodes >= MAX_EPISODES:
+                        print(f"Reached maximum episodes: {MAX_EPISODES}")
+                        break
 
-                if len(batch) < BATCH_SIZE:
+                if len(batch) < batch_size:
                     continue
 
                 states_t, actions_t, vals_ref_t = common.unpack_batch(
-                    batch, net, device=device, gamma=GAMMA, reward_steps=REWARD_STEPS)
+                    batch, net, device=device, gamma=gamma, reward_steps=reward_steps)
                 batch.clear()
 
                 optimizer.zero_grad()
@@ -109,12 +105,12 @@ if __name__ == "__main__":
 
                 log_prob_t = F.log_softmax(logits_t, dim=1)
                 adv_t = vals_ref_t - value_t.detach()
-                log_act_t = log_prob_t[range(BATCH_SIZE), actions_t]
+                log_act_t = log_prob_t[range(batch_size), actions_t]
                 log_prob_actions_t = adv_t * log_act_t
                 loss_policy_t = -log_prob_actions_t.mean()
 
                 prob_t = F.softmax(logits_t, dim=1)
-                entropy_loss_t = ENTROPY_BETA * (prob_t * log_prob_t).sum(dim=1).mean()
+                entropy_loss_t = entropy_beta * (prob_t * log_prob_t).sum(dim=1).mean()
 
                 # calculate policy gradients only
                 loss_policy_t.backward(retain_graph=True)
@@ -126,7 +122,7 @@ if __name__ == "__main__":
                 # apply entropy and value gradients
                 loss_v = entropy_loss_t + loss_value_t
                 loss_v.backward()
-                nn_utils.clip_grad_norm_(net.parameters(), CLIP_GRAD)
+                nn_utils.clip_grad_norm_(net.parameters(), clip_grad)
                 optimizer.step()
                 # get full loss
                 loss_v += loss_policy_t
@@ -141,3 +137,29 @@ if __name__ == "__main__":
                 tb_tracker.track("grad_l2", np.sqrt(np.mean(np.square(grads))), step_idx)
                 tb_tracker.track("grad_max", np.max(np.abs(grads)), step_idx)
                 tb_tracker.track("grad_var", np.var(grads), step_idx)
+
+    writer.close()
+    return np.mean(new_rewards)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dev", default="cpu", help="Device to use, default=cpu")
+    parser.add_argument("--use-async", default=False, action='store_true',
+                        help="Use async vector env (A3C mode)")
+    parser.add_argument("-n", "--name", default="run1", help="Name of the run")
+    args = parser.parse_args()
+    device = torch.device(args.dev)
+
+    study_name = "12_02_LunarLander_A2C"
+    study_storage = "sqlite:///12_02_lunarlander_a2c.db"
+    study = optuna.create_study(direction="maximize", study_name=study_name, storage=study_storage, load_if_exists=True)
+    study.optimize(objective, n_trials=10)  # Set the number of trials to 10
+
+    print("Best trial:")
+    trial = study.best_trial
+
+    print("  Value: ", trial.value)
+
+    print("  Params: ")
+    for key, value in trial.params.items():
+        print(f"    {key}: {value}")
