@@ -16,7 +16,7 @@ import torch.optim as optim
 from lib import common
 import optuna
 
-MAX_EPISODES = 500  # Maximum number of episodes per trial
+MAX_EPISODES = 2000  # Maximum number of episodes per trial
 
 class LunarA2C(nn.Module):
     def __init__(self, input_size: int, n_actions: int):
@@ -48,14 +48,57 @@ class LunarA2C(nn.Module):
 
 
 def objective(trial):
+
+    """ 
+    MAX_EPISODES = 800
+    num_envs = trial.suggest_int("num_envs", 1, 50)
+    Best trial:
+    Value:  27.20257568359375
+    Params:
+        gamma: 0.99506144896081
+        learning_rate: 5.861642093052056e-05
+        entropy_beta: 0.2102818142977461
+        batch_size: 126
+        num_envs: 1
+        reward_steps: 8
+        clip_grad: 0.05084669482248583
+
+    Value: -33
+    Params:
+        gamma 0.9805805527161346
+        learning_rate 0.0021693671242449257
+        entropy_beta 0.35022187470044525
+        batch_size 26
+        num_envs 33
+        reward_steps 8
+        clip_grad 0.8109772205601864
+    """
+    """ 
+    MAX_EPISODES = 2000
+    num_envs = trial.suggest_int("num_envs", 30, 50)
+    Best trial:
+    Value:  -66.74520111083984
+    Params:
+        gamma: 0.9494307326016157
+        learning_rate: 2.4075605858523512e-05
+        entropy_beta: 0.4847935797330713
+        batch_size: 46
+        num_envs: 32
+        reward_steps: 2
+        clip_grad: 0.20851543889270752
+        eps: 0.001736830440543104
+    """
+
+
     # Hyperparameters to optimize
     gamma = trial.suggest_float("gamma", 0.9, 0.999)
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-2, log=True)
     entropy_beta = trial.suggest_float("entropy_beta", 0.01, 0.5)
     batch_size = trial.suggest_int("batch_size", 8, 128)
-    num_envs = trial.suggest_int("num_envs", 1, 50)
+    num_envs = trial.suggest_int("num_envs", 30, 50)
     reward_steps = trial.suggest_int("reward_steps", 1, 10)
     clip_grad = trial.suggest_float("clip_grad", 0.01, 1.0)
+    eps = trial.suggest_float("eps", 1e-8, 1e-2, log=True)
 
     env_factories = [
         lambda: gym.make("LunarLander-v2")
@@ -72,12 +115,12 @@ def objective(trial):
     exp_source = VectorExperienceSourceFirstLast(
         env, agent, gamma=gamma, steps_count=reward_steps)
 
-    optimizer = optim.Adam(net.parameters(), lr=learning_rate, eps=1e-3)
+    optimizer = optim.Adam(net.parameters(), lr=learning_rate, eps=eps)
 
     batch = []
     done_episodes = 0
 
-    with common.RewardTracker(writer, stop_reward=18) as tracker:
+    with common.RewardTracker(writer, stop_reward=150) as tracker:
         with TBMeanTracker(writer, batch_size=10) as tb_tracker:
             for step_idx, exp in enumerate(exp_source):
                 batch.append(exp)
@@ -143,17 +186,17 @@ def objective(trial):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dev", default="cpu", help="Device to use, default=cpu")
+    parser.add_argument("--dev", default="cuda", help="Device to use, default=cpu")
     parser.add_argument("--use-async", default=False, action='store_true',
                         help="Use async vector env (A3C mode)")
     parser.add_argument("-n", "--name", default="run1", help="Name of the run")
     args = parser.parse_args()
     device = torch.device(args.dev)
 
-    study_name = "12_02_LunarLander_A2C"
+    study_name = "12_02_LunarLander_A2C MaxEpisodes 2000_reward150"
     study_storage = "sqlite:///12_02_lunarlander_a2c.db"
     study = optuna.create_study(direction="maximize", study_name=study_name, storage=study_storage, load_if_exists=True)
-    study.optimize(objective, n_trials=10)  # Set the number of trials to 10
+    study.optimize(objective, n_trials=30)  # Set the number of trials to 10
 
     print("Best trial:")
     trial = study.best_trial

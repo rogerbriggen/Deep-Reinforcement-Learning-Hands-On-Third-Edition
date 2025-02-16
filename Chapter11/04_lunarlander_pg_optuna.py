@@ -8,18 +8,30 @@ import typing as tt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.utils as nn_utils
 import torch.optim as optim
 import optuna
 
 
 """ 
-Best trial:
+Best trial: 2000 Episodes
   Value:  30.561374225529576
   Params:
     gamma: 0.9963608443224772
     learning_rate: 0.0022335963101069905
     entropy_beta: 0.28210005083583445
     batch_size: 41 
+"""
+
+""" 
+Best trial: 4000 Episodes
+  Value:  83.42666667568756
+  Params:
+    gamma 0.9938657489336196
+    learning_rate 9.833602129456292e-05
+    entropy_beta 0.031531337495250694
+    batch_size 64
+    reward_steps 34
 """
 
 GAMMA = 0.99
@@ -31,7 +43,7 @@ ENTROPY_BETA = 0.5 # works good at the beginning (mean = 50 but then goes back t
 BATCH_SIZE = 32
 
 REWARD_STEPS = 10
-MAX_EPISODES = 400  # Maximum number of episodes per trial
+MAX_EPISODES = 100_000  # Maximum number of episodes per trial
 
 # if GPU is to be used
 device = torch.device(
@@ -64,10 +76,28 @@ def smooth(old: tt.Optional[float], val: float, alpha: float = 0.95) -> float:
 
 def objective(trial):
     # Hyperparameters to optimize
-    gamma = trial.suggest_float("gamma", 0.9, 0.999)
-    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-2, log=True)
-    entropy_beta = trial.suggest_float("entropy_beta", 0.01, 0.5)
-    batch_size = trial.suggest_int("batch_size", 8, 64)
+    #gamma = trial.suggest_float("gamma", 0.7, 0.999)
+    #learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-2, log=True)
+    #entropy_beta = trial.suggest_float("entropy_beta", 0.01, 0.9)
+    #batch_size = trial.suggest_int("batch_size", 8, 64)
+    #reward_steps = trial.suggest_int("reward_steps", 1, 50)
+
+    # Define sets of fixed parameters
+    fixed_params_sets = [
+        {"gamma": 0.9838085810076989, "learning_rate": 0.0005729760820159084, "entropy_beta": 0.5244255132585021, "batch_size": 19, "reward_steps": 45},   # Did succeed first
+        {"gamma": 0.9938657489336196, "learning_rate":  9.833602129456292e-5, "entropy_beta": 0.031531337495250694, "batch_size": 64, "reward_steps": 34}, # Did succeed second
+        {"gamma": 0.9228104100256095, "learning_rate": 9.153524652558559e-05, "entropy_beta": 0.031490153969256696, "batch_size": 64, "reward_steps": 18}, # Did not succeed
+    ]
+
+    # Choose a set of fixed parameters
+    fixed_params = trial.suggest_categorical("fixed_params_set", fixed_params_sets)
+
+    # Extract fixed parameters
+    gamma = fixed_params["gamma"]
+    learning_rate = fixed_params["learning_rate"]
+    entropy_beta = fixed_params["entropy_beta"]
+    batch_size = fixed_params["batch_size"]
+    reward_steps = fixed_params["reward_steps"]
 
     print(f"gamma: {gamma}, learning_rate: {learning_rate}, entropy_beta: {entropy_beta}, batch_size: {batch_size}")
     env = gym.make("LunarLander-v2")
@@ -80,12 +110,12 @@ def objective(trial):
         net, preprocessor=ptan.agent.float32_preprocessor,
         apply_softmax=True, device=device)
     exp_source = ptan.experience.ExperienceSourceFirstLast(
-        env, agent, gamma=gamma, steps_count=REWARD_STEPS)
+        env, agent, gamma=gamma, steps_count=reward_steps)
 
     optimizer = optim.Adam(net.parameters(), lr=learning_rate)
 
     total_rewards = []
-    step_rewards = []
+    #step_rewards = []
     step_idx = 0
     done_episodes = 0
     reward_sum = 0.0
@@ -141,6 +171,7 @@ def objective(trial):
         loss_t = loss_policy_t + entropy_loss_t
 
         loss_t.backward()
+        nn_utils.clip_grad_norm_(net.parameters(), max_norm=2.0)  # clip gradient
         optimizer.step()
 
         # calc KL-div
@@ -184,10 +215,10 @@ def objective(trial):
     return mean_rewards
 
 if __name__ == "__main__":
-    study_name = "11_04_LunarLander_PG"
+    study_name = "11_04_LunarLander_PG  MaxEpisodes 100_000"
     study_storage="sqlite:///11_04_lunarlander_pg.db"
     study = optuna.create_study(direction="maximize", study_name=study_name, storage=study_storage, load_if_exists=True)
-    study.optimize(objective, n_trials=20)
+    study.optimize(objective, n_trials=3)
 
     print("Best trial:")
     trial = study.best_trial
