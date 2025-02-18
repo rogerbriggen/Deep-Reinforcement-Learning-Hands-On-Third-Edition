@@ -10,10 +10,11 @@ import torch
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-m", "--model", default="./saves/a2c-LunarLanderCont/best_+303.849_18200000.dat", help="Model file to load")
+    #parser.add_argument("-m", "--model", default="./saves/a2c-LunarLanderCont/best_+303.849_18200000.dat", help="Model file to load")
+    parser.add_argument("-m", "--model", default="./saves/a2c-LunarLanderContWind_v2/best_+288.780_59200000.dat", help="Model file to load")
     parser.add_argument("-e", "--env", choices=list(common.ENV_PARAMS.keys()),
                         default='cheetah', help="Environment name to use, default=cheehah")
-    parser.add_argument("-r", "--record", default="vids/a2c-LunarLanderCont", help="If specified, sets the recording dir, default=Disabled")
+    parser.add_argument("-r", "--record", default="vids/a2c-LunarLanderContWind", help="If specified, sets the recording dir, default=Disabled")
     parser.add_argument("--acktr", default=False, action='store_true', help="Enable Acktr-specific tweaks")
     parser.add_argument("--mujoco", default=False, action='store_true', help="Enable MuJoCo, default=PyBullet")
     args = parser.parse_args()
@@ -21,9 +22,9 @@ if __name__ == "__main__":
     #env_id = common.register_env(args.env, args.mujoco)
     extra = {}
     extra['continuous'] = True
-    #extra['enable_wind'] = True     # default False
-    #extra['wind_power'] = 30.0      # default 15.0
-    #extra['turbulence_power'] = 3.0 # default 1.5
+    extra['enable_wind'] = True     # default False
+    extra['wind_power'] = 15.0      # default 15.0
+    extra['turbulence_power'] = 1.5 # default 1.5
     env_id = "LunarLander-v2"
     env = gym.make(env_id, render_mode='rgb_array', **extra)
     if args.record is not None:
