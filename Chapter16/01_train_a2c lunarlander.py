@@ -31,7 +31,7 @@ TEST_ITERS = 100000
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dev", default="cuda", help="Device to use, default=cpu")
-    parser.add_argument("-n", "--name", default="LunarLanderCont", help="Name of the run")
+    parser.add_argument("-n", "--name", default="LunarLanderContWind", help="Name of the run")
     parser.add_argument("-e", "--env", choices=list(common.ENV_PARAMS.keys()),
                         default='lunar', help="Environment id, default=lunar")
     parser.add_argument("--mujoco", default=False, action='store_true',
@@ -52,11 +52,17 @@ if __name__ == "__main__":
 
     #env_id = common.register_env_lunar(args.env, args.mujoco)
     extra['continuous'] = True
-    #extra['enable_wind'] = True     # default False
-    #extra['wind_power'] = 30.0      # default 15.0
-    #extra['turbulence_power'] = 3.0 # default 1.5
+    # Set if you want to train with wind... it makes the training harder
+    extra['enable_wind'] = True     # default False
+
     env_id = "LunarLander-v2"
-    envs = [gym.make(env_id, **extra) for _ in range(ENVS_COUNT)]
+    envs = []
+    for i in range(ENVS_COUNT):
+        extra['wind_power'] = i * 2     # default 15.0
+        extra['turbulence_power'] = 3.0 # default 1.5
+        envs.append(gym.make(env_id, **extra))
+    extra['wind_power'] = 15.0     # default 15.0
+    extra['turbulence_power'] = 1.5 # default 1.5
     test_env = gym.make(env_id, **extra)
 
     net_act = model.ModelActor(envs[0].observation_space.shape[0], envs[0].action_space.shape[0]).to(device)
