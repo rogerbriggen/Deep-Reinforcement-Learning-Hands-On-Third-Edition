@@ -52,6 +52,9 @@ if __name__ == "__main__":
 
     #env_id = common.register_env_lunar(args.env, args.mujoco)
     extra['continuous'] = True
+    #extra['enable_wind'] = True     # default False
+    #extra['wind_power'] = 30.0      # default 15.0
+    #extra['turbulence_power'] = 3.0 # default 1.5
     env_id = "LunarLander-v2"
     envs = [gym.make(env_id, **extra) for _ in range(ENVS_COUNT)]
     test_env = gym.make(env_id, **extra)
